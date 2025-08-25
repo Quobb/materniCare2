@@ -247,15 +247,15 @@ const ConsultationScreen = () => {
                   defaultSource={require('../../assets/animation/Baby-bro.png')}
                 />
                 <View className="flex-1">
-                  <Text className="text-lg font-semibold text-gray-900">{doctor.full_name}</Text>
+                  <Text className="text-lg font-semibold text-gray-900">{doctor.name}</Text>
                   <Text className="mb-1 text-sm text-gray-600">{doctor.specialty}</Text>
                   <View className="flex-row items-center mb-2">
                     <Ionicons name="star" size={14} color="#fbbf24" />
                     <Text className="ml-1 text-sm text-gray-600">{doctor.rating} • {doctor.experience}</Text>
                   </View>
                   <View className="flex-row items-center justify-between">
-                    <Text className="text-sm font-medium text-green-600">{doctor.nextAvailable}</Text>
-                    <Text className="text-sm font-semibold text-gray-900">{doctor.consultationFee}</Text>
+                    <Text className="text-sm font-medium text-green-600">{doctor.nextavailable}</Text>
+                    <Text className="text-sm font-semibold text-gray-900">{doctor.consultationfee}</Text>
                   </View>
                 </View>
               </View>
@@ -474,8 +474,8 @@ const ConsultationScreen = () => {
             <View key={appointment.id} className="p-5 mb-4 bg-white border border-gray-200 shadow-sm rounded-2xl">
               <View className="flex-row items-center justify-between mb-4">
                 <View className="flex-1">
-                  <Text className="text-lg font-semibold text-gray-900">{appointment.doctor?.full_name}</Text>
-                  <Text className="text-sm text-gray-600">{appointment.reason}</Text>
+                  <Text className="text-lg font-semibold text-gray-900">{appointment.doctors?.name}</Text>
+                  <Text className="text-sm text-gray-600">{appointment.notes}</Text>
                 </View>
                 <View className={`px-3 py-1 rounded-full border ${getStatusStyle(appointment.status)}`}>
                   <Text className="text-xs font-medium">{appointment.status}</Text>
@@ -486,7 +486,7 @@ const ConsultationScreen = () => {
                 <View className="flex-row items-center">
                   <Ionicons name="calendar" size={16} color="#6b7280" />
                   <Text className="ml-2 text-sm text-gray-600">
-                    {new Date(appointment.scheduled_at).toLocaleDateString()} • {appointment.scheduled_at}
+                    {new Date(appointment.appointment_date).toLocaleDateString()} • {appointment.time}
                   </Text>
                 </View>
                 <View className="flex-row items-center">
