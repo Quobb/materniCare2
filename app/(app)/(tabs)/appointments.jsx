@@ -12,7 +12,8 @@ import {
   Pressable,
   Dimensions,
   Animated,
-  PanResponder,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -46,11 +47,13 @@ const AppointmentsScreen = ({ navigation }) => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [modalAnimation] = useState(new Animated.Value(0));
+  const [datePickerMode, setDatePickerMode] = useState('add'); // 'add' or 'update'
+  const [timePickerMode, setTimePickerMode] = useState('add');
   
   const [newAppointment, setNewAppointment] = useState({
     type: '',
     doctor_id: '',
-    date: new Date(),
+    appointment_date: new Date(),
     time: new Date(),
     notes: '',
     reminder: true,
@@ -59,7 +62,7 @@ const AppointmentsScreen = ({ navigation }) => {
   const [updateAppointment, setUpdateAppointment] = useState({
     type: '',
     doctor_id: '',
-    date: new Date(),
+    appointment_date: new Date(),
     time: new Date(),
     notes: '',
     reminder: true,
@@ -99,9 +102,13 @@ const AppointmentsScreen = ({ navigation }) => {
         return;
       }
       
-      token = (await Notifications.getExpoPushTokenAsync({
-        projectId: Constants.expoConfig.extra.eas.projectId,
-      })).data;
+      try {
+        token = (await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        })).data;
+      } catch (error) {
+        console.log('Push token error:', error);
+      }
     }
 
     if (Platform.OS === 'android') {
@@ -120,14 +127,22 @@ const AppointmentsScreen = ({ navigation }) => {
   const scheduleAppointmentReminder = async (appointment) => {
     if (!appointment.reminder) return;
 
-    const appointmentDate = new Date(appointment.scheduled_at);
-    const reminderTime = new Date(appointmentDate.getTime() - 24 * 60 * 60 * 1000); // 24 hours before
+    // Create appointment date from separate date and time
+    const appointmentDateTime = new Date(appointment.appointment_date);
+    appointmentDateTime.setHours(
+      new Date(appointment.time).getHours(),
+      new Date(appointment.time).getMinutes(),
+      0,
+      0
+    );
+    
+    const reminderTime = new Date(appointmentDateTime.getTime() - 24 * 60 * 60 * 1000); // 24 hours before
     
     if (reminderTime > new Date()) {
       await Notifications.scheduleNotificationAsync({
         content: {
           title: "Appointment Reminder 📅",
-          body: `You have a ${appointment.type} appointment tomorrow with ${appointment.doctor?.full_name}`,
+          body: `You have a ${appointment.type} appointment tomorrow with ${appointment.doctors?.name || 'your doctor'}`,
           data: { appointmentId: appointment.id },
         },
         trigger: {
@@ -136,7 +151,7 @@ const AppointmentsScreen = ({ navigation }) => {
       });
 
       // Also schedule a notification 1 hour before
-      const oneHourBefore = new Date(appointmentDate.getTime() - 60 * 60 * 1000);
+      const oneHourBefore = new Date(appointmentDateTime.getTime() - 60 * 60 * 1000);
       if (oneHourBefore > new Date()) {
         await Notifications.scheduleNotificationAsync({
           content: {
@@ -232,22 +247,19 @@ const AppointmentsScreen = ({ navigation }) => {
     setIsLoading(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const scheduledDate = new Date(
-        newAppointment.date.getFullYear(),
-        newAppointment.date.getMonth(),
-        newAppointment.date.getDate(),
-        newAppointment.time.getHours(),
-        newAppointment.time.getMinutes()
-      );
+
+      // Format date and time separately
+      const appointmentDate = newAppointment.appointment_date.toISOString().split('T')[0]; // YYYY-MM-DD
+      const appointmentTime = newAppointment.time.toTimeString().split(' ')[0]; // HH:MM:SS
 
       const response = await axios.post(
         `${API_BASE_URL}/appointments`,
         {
           type: newAppointment.type,
           doctor_id: newAppointment.doctor_id,
-          scheduled_at: scheduledDate.toISOString(),
+          appointment_date: appointmentDate,
+          time: appointmentTime,
           notes: newAppointment.notes || null,
-          reminder: newAppointment.reminder,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -257,21 +269,14 @@ const AppointmentsScreen = ({ navigation }) => {
       
       // Schedule reminder if enabled
       if (newAppointment.reminder) {
-        await scheduleAppointmentReminder(createdAppointment);
+        await scheduleAppointmentReminder({ ...createdAppointment, reminder: true });
         showToast('success', 'Success', 'Appointment added with reminders set!');
       } else {
         showToast('success', 'Success', 'Appointment added successfully!');
       }
       
       setShowAddModal(false);
-      setNewAppointment({
-        type: '',
-        doctor_id: '',
-        date: new Date(),
-        time: new Date(),
-        notes: '',
-        reminder: true,
-      });
+      resetNewAppointment();
     } catch (error) {
       const errorMessage =
         error.response?.data?.error || 'Failed to create appointment';
@@ -280,6 +285,17 @@ const AppointmentsScreen = ({ navigation }) => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const resetNewAppointment = () => {
+    setNewAppointment({
+      type: '',
+      doctor_id: '',
+      appointment_date: new Date(),
+      time: new Date(),
+      notes: '',
+      reminder: true,
+    });
   };
 
   const updateAppointmentData = async () => {
@@ -291,37 +307,34 @@ const AppointmentsScreen = ({ navigation }) => {
     setIsLoading(true);
     try {
       const token = await AsyncStorage.getItem('authToken');
-      const scheduledDate = new Date(
-        updateAppointment.date.getFullYear(),
-        updateAppointment.date.getMonth(),
-        updateAppointment.date.getDate(),
-        updateAppointment.time.getHours(),
-        updateAppointment.time.getMinutes()
-      );
 
-      const response = await axios.patch(
+      // Format date and time separately
+      const appointmentDate = updateAppointment.appointment_date.toISOString().split('T')[0]; // YYYY-MM-DD
+      const appointmentTime = updateAppointment.time.toTimeString().split(' ')[0]; // HH:MM:SS
+
+      const response = await axios.put(
         `${API_BASE_URL}/appointments/${selectedAppointment.id}`,
         {
           type: updateAppointment.type,
           doctor_id: updateAppointment.doctor_id,
-          scheduled_at: scheduledDate.toISOString(),
+          appointment_date: appointmentDate,
+          time: appointmentTime,
           notes: updateAppointment.notes || null,
-          reminder: updateAppointment.reminder,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const updatedAppointment = response.data.appointment;
+      const updatedAppointmentData = response.data.appointment;
       setAppointments((prev) =>
         prev.map((apt) =>
-          apt.id === selectedAppointment.id ? updatedAppointment : apt
+          apt.id === selectedAppointment.id ? updatedAppointmentData : apt
         )
       );
 
       // Cancel old reminders and set new ones if enabled
       await cancelAppointmentReminder(selectedAppointment.id);
       if (updateAppointment.reminder) {
-        await scheduleAppointmentReminder(updatedAppointment);
+        await scheduleAppointmentReminder({ ...updatedAppointmentData, reminder: true });
         showToast('success', 'Success', 'Appointment updated with new reminders!');
       } else {
         showToast('success', 'Success', 'Appointment updated successfully!');
@@ -349,25 +362,20 @@ const AppointmentsScreen = ({ navigation }) => {
           onPress: async () => {
             try {
               const token = await AsyncStorage.getItem('authToken');
-              await axios.patch(
-                `${API_BASE_URL}/appointments/${id}/status`,
-                { status: 'cancelled' },
+              await axios.delete(
+                `${API_BASE_URL}/appointments/${id}`,
                 { headers: { Authorization: `Bearer ${token}` } }
               );
               
               // Cancel reminders for deleted appointment
               await cancelAppointmentReminder(id);
               
-              setAppointments((prev) =>
-                prev.map((apt) =>
-                  apt.id === id ? { ...apt, status: 'cancelled' } : apt
-                )
-              );
+              setAppointments((prev) => prev.filter((apt) => apt.id !== id));
               
-              showToast('success', 'Success', 'Appointment cancelled and reminders removed');
+              showToast('success', 'Success', 'Appointment deleted and reminders removed');
             } catch (error) {
               const errorMessage =
-                error.response?.data?.error || 'Failed to cancel appointment';
+                error.response?.data?.error || 'Failed to delete appointment';
               showToast('error', 'Error', errorMessage);
             }
           },
@@ -380,13 +388,7 @@ const AppointmentsScreen = ({ navigation }) => {
     const newReminderState = !appointment.reminder;
     
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      await axios.patch(
-        `${API_BASE_URL}/appointments/${appointment.id}`,
-        { reminder: newReminderState },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
+      // Update local state immediately
       setAppointments((prev) =>
         prev.map((apt) =>
           apt.id === appointment.id ? { ...apt, reminder: newReminderState } : apt
@@ -401,6 +403,12 @@ const AppointmentsScreen = ({ navigation }) => {
         showToast('info', 'Reminder Off', 'Appointment reminders have been cancelled');
       }
     } catch (error) {
+      // Revert state if error
+      setAppointments((prev) =>
+        prev.map((apt) =>
+          apt.id === appointment.id ? { ...apt, reminder: appointment.reminder } : apt
+        )
+      );
       showToast('error', 'Error', 'Failed to update reminder setting');
     }
   };
@@ -410,14 +418,20 @@ const AppointmentsScreen = ({ navigation }) => {
     if (appointment.status === 'cancelled') return;
     
     setSelectedAppointment(appointment);
-    const appointmentDate = new Date(appointment.scheduled_at);
+    
+    // Parse appointment date and time
+    const appointmentDate = new Date(appointment.appointment_date);
+    const timeComponents = appointment.time.split(':');
+    const appointmentTime = new Date();
+    appointmentTime.setHours(parseInt(timeComponents[0]), parseInt(timeComponents[1]), 0, 0);
+    
     setUpdateAppointment({
       type: appointment.type,
       doctor_id: appointment.doctor_id,
-      date: appointmentDate,
-      time: appointmentDate,
+      appointment_date: appointmentDate,
+      time: appointmentTime,
       notes: appointment.notes || '',
-      reminder: appointment.reminder,
+      reminder: appointment.reminder || false,
     });
     openUpdateModal();
   };
@@ -457,25 +471,51 @@ const AppointmentsScreen = ({ navigation }) => {
 
   const getUpcomingAppointments = () => {
     const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    
     return appointments
-      .filter((apt) => new Date(apt.scheduled_at) >= today && apt.status !== 'cancelled')
-      .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+      .filter((apt) => {
+        const aptDate = new Date(apt.appointment_date);
+        aptDate.setHours(0, 0, 0, 0);
+        return aptDate >= today && apt.status !== 'cancelled';
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.appointment_date);
+        const dateB = new Date(b.appointment_date);
+        return dateA - dateB;
+      });
   };
 
   const getPastAppointments = () => {
     const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    
     return appointments
-      .filter((apt) => new Date(apt.scheduled_at) < today)
-      .sort((a, b) => new Date(b.scheduled_at) - new Date(a.scheduled_at));
+      .filter((apt) => {
+        const aptDate = new Date(apt.appointment_date);
+        aptDate.setHours(0, 0, 0, 0);
+        return aptDate < today;
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.appointment_date);
+        const dateB = new Date(b.appointment_date);
+        return dateB - dateA; // Most recent first
+      });
   };
 
-  const formatDate = (isoString) => {
-    const date = new Date(isoString);
-    return date.toISOString().split('T')[0];
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
   };
 
-  const formatTime = (isoString) => {
-    const date = new Date(isoString);
+  const formatTime = (timeString) => {
+    const [hours, minutes] = timeString.split(':');
+    const date = new Date();
+    date.setHours(parseInt(hours), parseInt(minutes), 0, 0);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
@@ -483,6 +523,38 @@ const AppointmentsScreen = ({ navigation }) => {
     inputRange: [0, 1],
     outputRange: [screenHeight, 0],
   });
+
+  const onDateChange = (event, selectedDate) => {
+    const currentDate = selectedDate || new Date();
+    setShowDatePicker(false);
+    
+    if (datePickerMode === 'add') {
+      setNewAppointment(prev => ({ ...prev, appointment_date: currentDate }));
+    } else {
+      setUpdateAppointment(prev => ({ ...prev, appointment_date: currentDate }));
+    }
+  };
+
+  const onTimeChange = (event, selectedTime) => {
+    const currentTime = selectedTime || new Date();
+    setShowTimePicker(false);
+    
+    if (timePickerMode === 'add') {
+      setNewAppointment(prev => ({ ...prev, time: currentTime }));
+    } else {
+      setUpdateAppointment(prev => ({ ...prev, time: currentTime }));
+    }
+  };
+
+  const openDatePicker = (mode) => {
+    setDatePickerMode(mode);
+    setShowDatePicker(true);
+  };
+
+  const openTimePicker = (mode) => {
+    setTimePickerMode(mode);
+    setShowTimePicker(true);
+  };
 
   return (
     <>
@@ -505,9 +577,7 @@ const AppointmentsScreen = ({ navigation }) => {
           <Text className="text-2xl font-bold text-pink-700">Appointments</Text>
           <View className="flex-row items-center space-x-3">
             {(isRefreshing || isLoading) && (
-              <Text className="text-sm text-pink-600">
-                {isRefreshing ? 'Refreshing...' : 'Loading...'}
-              </Text>
+              <ActivityIndicator size="small" color="#FF8AB7" />
             )}
             <TouchableOpacity onPress={() => setShowAddModal(true)} disabled={isLoading || isRefreshing}>
               <Ionicons name="add-circle" size={24} color={(isLoading || isRefreshing) ? '#D1D5DB' : '#FF8AB7'} />
@@ -527,7 +597,7 @@ const AppointmentsScreen = ({ navigation }) => {
             <Text className="text-sm font-medium text-pink-600">This Month</Text>
             <Text className="text-2xl font-bold text-pink-700">
               {appointments.filter((apt) => {
-                const aptDate = new Date(apt.scheduled_at);
+                const aptDate = new Date(apt.appointment_date);
                 const now = new Date();
                 return (
                   aptDate.getMonth() === now.getMonth() &&
@@ -555,7 +625,10 @@ const AppointmentsScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           {isLoading ? (
-            <Text className="text-center text-gray-600">Loading...</Text>
+            <View className="items-center p-6">
+              <ActivityIndicator size="large" color="#FF8AB7" />
+              <Text className="mt-2 text-center text-gray-600">Loading appointments...</Text>
+            </View>
           ) : getUpcomingAppointments().length === 0 ? (
             <View className="items-center p-6 bg-white border border-pink-100 shadow-sm rounded-2xl">
               <Ionicons name="calendar-outline" size={48} color="#FFB1CC" />
@@ -574,6 +647,7 @@ const AppointmentsScreen = ({ navigation }) => {
                 key={appointment.id}
                 onLongPress={() => handleLongPress(appointment)}
                 className="p-4 mb-3 bg-white border border-pink-100 shadow-sm rounded-2xl"
+                delayLongPress={500}
               >
                 <View className="flex-row items-start justify-between mb-2">
                   <View className="flex-1">
@@ -581,8 +655,13 @@ const AppointmentsScreen = ({ navigation }) => {
                       {appointment.type || 'Appointment'}
                     </Text>
                     <Text className="text-sm text-gray-600">
-                      {appointment.doctor?.full_name || 'Unknown Doctor'}
+                      {appointment.doctors?.name || 'Unknown Doctor'}
                     </Text>
+                    {appointment.doctors?.specialty && (
+                      <Text className="text-xs text-gray-500">
+                        {appointment.doctors.specialty}
+                      </Text>
+                    )}
                   </View>
                   <View className={`px-3 py-1 rounded-full ${getStatusColor(appointment.status)}`}>
                     <Text className="text-xs font-medium capitalize">{appointment.status}</Text>
@@ -592,11 +671,11 @@ const AppointmentsScreen = ({ navigation }) => {
                 <View className="flex-row items-center mb-2">
                   <Ionicons name="calendar" size={16} color="#6B7280" />
                   <Text className="ml-1 text-sm text-gray-600">
-                    {formatDate(appointment.scheduled_at)}
+                    {formatDate(appointment.appointment_date)}
                   </Text>
-                  <Ionicons name="time" size={16} color="#6B7280" className="ml-4" />
+                  <Ionicons name="time" size={16} color="#6B7280" style={{ marginLeft: 16 }} />
                   <Text className="ml-1 text-sm text-gray-600">
-                    {formatTime(appointment.scheduled_at)}
+                    {formatTime(appointment.time)}
                   </Text>
                 </View>
 
@@ -633,7 +712,7 @@ const AppointmentsScreen = ({ navigation }) => {
                   </View>
                 </View>
                 
-                <Text className="text-xs text-gray-400 mt-1">Long press to edit</Text>
+                <Text className="mt-1 text-xs text-gray-400">Long press to edit</Text>
               </Pressable>
             ))
           )}
@@ -654,10 +733,10 @@ const AppointmentsScreen = ({ navigation }) => {
                       {appointment.type || 'Appointment'}
                     </Text>
                     <Text className="text-sm text-gray-500">
-                      {appointment.doctor?.full_name || 'Unknown Doctor'}
+                      {appointment.doctors?.name || 'Unknown Doctor'}
                     </Text>
                     <Text className="text-sm text-gray-500">
-                      {formatDate(appointment.scheduled_at)} • {formatTime(appointment.scheduled_at)}
+                      {formatDate(appointment.appointment_date)} • {formatTime(appointment.time)}
                     </Text>
                   </View>
                   <Ionicons name="checkmark-circle" size={20} color="#FF8AB7" />
@@ -696,7 +775,12 @@ const AppointmentsScreen = ({ navigation }) => {
       <Modal visible={showAddModal} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView className="flex-1 bg-white">
           <View className="flex-row items-center justify-between p-4 border-b border-gray-200">
-            <TouchableOpacity onPress={() => setShowAddModal(false)}>
+            <TouchableOpacity 
+              onPress={() => {
+                setShowAddModal(false);
+                resetNewAppointment();
+              }}
+            >
               <Text className="font-medium text-pink-600">Cancel</Text>
             </TouchableOpacity>
             <Text className="text-lg font-semibold text-pink-700">Add Appointment</Text>
@@ -751,134 +835,136 @@ const AppointmentsScreen = ({ navigation }) => {
               )}
             </View>
 
-            {/* Doctor */}
+            {/* Doctor Selection */}
             <View className="mb-4">
-              <Text className="mb-2 font-medium text-gray-700">Doctor/Provider *</Text>
+              <Text className="mb-2 font-medium text-gray-700">Doctor *</Text>
               <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
+                className="mb-2"
                 contentContainerStyle={{ paddingHorizontal: 4 }}
               >
                 {doctors.map((doctor, index) => (
                   <TouchableOpacity
                     key={doctor.id}
-                    onPress={() =>
-                      setNewAppointment((prev) => ({ ...prev, doctor_id: doctor.id }))
-                    }
-                    className={`px-4 py-2 rounded-full border ${
+                    onPress={() => setNewAppointment((prev) => ({ ...prev, doctor_id: doctor.id }))}
+                    className={`px-4 py-3 rounded-xl border ${
                       newAppointment.doctor_id === doctor.id
                         ? 'bg-pink-500 border-pink-500'
                         : 'bg-white border-gray-300'
                     }`}
                     style={{ 
                       marginRight: index < doctors.length - 1 ? 8 : 0,
-                      minWidth: 100
+                      minWidth: 120
                     }}
                   >
                     <Text
-                      className={`text-sm text-center ${
-                        newAppointment.doctor_id === doctor.id
-                          ? 'text-white font-medium'
+                      className={`text-sm font-medium ${
+                        newAppointment.doctor_id === doctor.id 
+                          ? 'text-white' 
                           : 'text-gray-700'
                       }`}
                       numberOfLines={1}
                     >
-                      {doctor.full_name}
+                      {doctor.name}
+                    </Text>
+                    <Text
+                      className={`text-xs ${
+                        newAppointment.doctor_id === doctor.id 
+                          ? 'text-pink-100' 
+                          : 'text-gray-500'
+                      }`}
+                      numberOfLines={1}
+                    >
+                      {doctor.specialty}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
               {newAppointment.doctor_id && (
-                <Text className="text-sm text-pink-600 mt-1">
-                  Selected: {doctors.find(d => d.id === newAppointment.doctor_id)?.full_name}
+                <Text className="text-sm text-pink-600">
+                  Selected: {doctors.find(d => d.id === newAppointment.doctor_id)?.name}
                 </Text>
               )}
             </View>
 
-            {/* Date */}
-            <View className="mb-4">
-              <Text className="mb-2 font-medium text-gray-700">Date</Text>
-              <TouchableOpacity
-                onPress={() => setShowDatePicker(true)}
-                className="flex-row items-center justify-between p-3 bg-gray-50 rounded-xl"
-              >
-                <Text className="text-gray-700">{newAppointment.date.toDateString()}</Text>
-                <Ionicons name="calendar" size={20} color="#6B7280" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Time */}
-            <View className="mb-4">
-              <Text className="mb-2 font-medium text-gray-700">Time</Text>
-              <TouchableOpacity
-                onPress={() => setShowTimePicker(true)}
-                className="flex-row items-center justify-between p-3 bg-gray-50 rounded-xl"
-              >
-                <Text className="text-gray-700">
-                  {newAppointment.time.toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </Text>
-                <Ionicons name="time" size={20} color="#6B7280" />
-              </TouchableOpacity>
+            {/* Date and Time */}
+            <View className="flex-row mb-4 space-x-4">
+              <View className="flex-1">
+                <Text className="mb-2 font-medium text-gray-700">Date *</Text>
+                <TouchableOpacity
+                  onPress={() => openDatePicker('add')}
+                  className="p-3 border border-gray-300 rounded-xl"
+                >
+                  <Text className="text-gray-700">
+                    {newAppointment.appointment_date.toLocaleDateString()}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View className="flex-1">
+                <Text className="mb-2 font-medium text-gray-700">Time *</Text>
+                <TouchableOpacity
+                  onPress={() => openTimePicker('add')}
+                  className="p-3 border border-gray-300 rounded-xl"
+                >
+                  <Text className="text-gray-700">
+                    {newAppointment.time.toLocaleTimeString([], { 
+                      hour: '2-digit', 
+                      minute: '2-digit' 
+                    })}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Notes */}
             <View className="mb-4">
               <Text className="mb-2 font-medium text-gray-700">Notes</Text>
               <TextInput
-                className="p-3 text-gray-700 bg-gray-50 rounded-xl"
-                placeholder="Add notes (optional)"
-                multiline
-                numberOfLines={3}
                 value={newAppointment.notes}
                 onChangeText={(text) => setNewAppointment((prev) => ({ ...prev, notes: text }))}
+                placeholder="Add any notes about this appointment..."
+                multiline
+                numberOfLines={3}
+                className="p-3 border border-gray-300 rounded-xl"
+                style={{ textAlignVertical: 'top' }}
               />
             </View>
 
             {/* Reminder Toggle */}
-            <View className="flex-row items-center justify-between mb-6">
-              <View>
-                <Text className="font-medium text-gray-700">Set Reminder & Alarm</Text>
-                <Text className="text-sm text-gray-500">Get notified 24h and 1h before</Text>
-              </View>
+            <View className="mb-4">
               <TouchableOpacity
-                onPress={() =>
-                  setNewAppointment((prev) => ({ ...prev, reminder: !prev.reminder }))
-                }
-                className={`w-12 h-6 rounded-full ${
-                  newAppointment.reminder ? 'bg-pink-500' : 'bg-gray-300'
-                }`}
+                onPress={() => setNewAppointment((prev) => ({ ...prev, reminder: !prev.reminder }))}
+                className="flex-row items-center justify-between p-3 border border-gray-300 rounded-xl"
               >
-                <View
-                  className={`w-5 h-5 bg-white rounded-full mt-0.5 ${
-                    newAppointment.reminder ? 'ml-6' : 'ml-0.5'
-                  }`}
+                <Text className="font-medium text-gray-700">Set Reminder</Text>
+                <Ionicons
+                  name={newAppointment.reminder ? 'toggle' : 'toggle-outline'}
+                  size={24}
+                  color={newAppointment.reminder ? '#FF8AB7' : '#6B7280'}
                 />
               </TouchableOpacity>
+              {newAppointment.reminder && (
+                <Text className="mt-1 text-xs text-gray-500">
+                  You'll receive reminders 24 hours and 1 hour before your appointment
+                </Text>
+              )}
             </View>
           </ScrollView>
         </SafeAreaView>
       </Modal>
 
-      {/* Update Appointment Bottom Modal */}
+      {/* Update Appointment Modal */}
       <Modal visible={showUpdateModal} transparent animationType="none">
         <View className="flex-1 bg-black bg-opacity-50">
-          <TouchableOpacity 
-            className="flex-1"
-            onPress={closeUpdateModal}
-            activeOpacity={1}
-          />
           <Animated.View
             style={{
               transform: [{ translateY: modalTranslateY }],
-              height: screenHeight / 2,
+              flex: 1,
             }}
-            className="bg-white rounded-t-3xl"
+            className="bg-white"
           >
             <SafeAreaView className="flex-1">
-              {/* Modal Header */}
               <View className="flex-row items-center justify-between p-4 border-b border-gray-200">
                 <TouchableOpacity onPress={closeUpdateModal}>
                   <Text className="font-medium text-pink-600">Cancel</Text>
@@ -886,7 +972,7 @@ const AppointmentsScreen = ({ navigation }) => {
                 <Text className="text-lg font-semibold text-pink-700">Update Appointment</Text>
                 <TouchableOpacity onPress={updateAppointmentData} disabled={isLoading}>
                   <Text className={`font-medium ${isLoading ? 'text-gray-400' : 'text-pink-600'}`}>
-                    {isLoading ? 'Saving...' : 'Save'}
+                    {isLoading ? 'Updating...' : 'Update'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -897,25 +983,26 @@ const AppointmentsScreen = ({ navigation }) => {
                   <Text className="mb-2 font-medium text-gray-700">Appointment Type *</Text>
                   <ScrollView 
                     horizontal 
-                    showsHorizontalScrollIndicator={false}
+                    showsHorizontalScrollIndicator={false} 
+                    className="mb-2"
                     contentContainerStyle={{ paddingHorizontal: 4 }}
                   >
                     {appointmentTypes.map((type, index) => (
                       <TouchableOpacity
                         key={type}
                         onPress={() => setUpdateAppointment((prev) => ({ ...prev, type }))}
-                        className={`px-3 py-2 rounded-full border ${
+                        className={`px-4 py-2 rounded-full border ${
                           updateAppointment.type === type
                             ? 'bg-pink-500 border-pink-500'
                             : 'bg-white border-gray-300'
                         }`}
                         style={{ 
-                          marginRight: index < appointmentTypes.length - 1 ? 6 : 0,
-                          minWidth: 70
+                          marginRight: index < appointmentTypes.length - 1 ? 8 : 0,
+                          minWidth: 80
                         }}
                       >
                         <Text
-                          className={`text-xs text-center ${
+                          className={`text-sm text-center ${
                             updateAppointment.type === type 
                               ? 'text-white font-medium' 
                               : 'text-gray-700'
@@ -927,75 +1014,91 @@ const AppointmentsScreen = ({ navigation }) => {
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
+                  {updateAppointment.type && (
+                    <Text className="text-sm text-pink-600">
+                      Selected: {updateAppointment.type}
+                    </Text>
+                  )}
                 </View>
 
-                {/* Doctor */}
+                {/* Doctor Selection */}
                 <View className="mb-4">
-                  <Text className="mb-2 font-medium text-gray-700">Doctor/Provider *</Text>
+                  <Text className="mb-2 font-medium text-gray-700">Doctor *</Text>
                   <ScrollView 
                     horizontal 
                     showsHorizontalScrollIndicator={false}
+                    className="mb-2"
                     contentContainerStyle={{ paddingHorizontal: 4 }}
                   >
                     {doctors.map((doctor, index) => (
                       <TouchableOpacity
                         key={doctor.id}
-                        onPress={() =>
-                          setUpdateAppointment((prev) => ({ ...prev, doctor_id: doctor.id }))
-                        }
-                        className={`px-3 py-2 rounded-full border ${
+                        onPress={() => setUpdateAppointment((prev) => ({ ...prev, doctor_id: doctor.id }))}
+                        className={`px-4 py-3 rounded-xl border ${
                           updateAppointment.doctor_id === doctor.id
                             ? 'bg-pink-500 border-pink-500'
                             : 'bg-white border-gray-300'
                         }`}
                         style={{ 
-                          marginRight: index < doctors.length - 1 ? 6 : 0,
-                          minWidth: 80
+                          marginRight: index < doctors.length - 1 ? 8 : 0,
+                          minWidth: 120
                         }}
                       >
                         <Text
-                          className={`text-xs text-center ${
-                            updateAppointment.doctor_id === doctor.id
-                              ? 'text-white font-medium'
+                          className={`text-sm font-medium ${
+                            updateAppointment.doctor_id === doctor.id 
+                              ? 'text-white' 
                               : 'text-gray-700'
                           }`}
                           numberOfLines={1}
                         >
-                          {doctor.full_name}
+                          {doctor.name}
+                        </Text>
+                        <Text
+                          className={`text-xs ${
+                            updateAppointment.doctor_id === doctor.id 
+                              ? 'text-pink-100' 
+                              : 'text-gray-500'
+                          }`}
+                          numberOfLines={1}
+                        >
+                          {doctor.specialty}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
+                  {updateAppointment.doctor_id && (
+                    <Text className="text-sm text-pink-600">
+                      Selected: {doctors.find(d => d.id === updateAppointment.doctor_id)?.name}
+                    </Text>
+                  )}
                 </View>
 
-                {/* Date and Time Row */}
-                <View className="flex-row mb-4 space-x-2">
+                {/* Date and Time */}
+                <View className="flex-row mb-4 space-x-4">
                   <View className="flex-1">
-                    <Text className="mb-2 font-medium text-gray-700">Date</Text>
+                    <Text className="mb-2 font-medium text-gray-700">Date *</Text>
                     <TouchableOpacity
-                      onPress={() => setShowDatePicker(true)}
-                      className="flex-row items-center justify-between p-2 bg-gray-50 rounded-xl"
+                      onPress={() => openDatePicker('update')}
+                      className="p-3 border border-gray-300 rounded-xl"
                     >
-                      <Text className="text-sm text-gray-700">
-                        {updateAppointment.date.toLocaleDateString()}
+                      <Text className="text-gray-700">
+                        {updateAppointment.appointment_date.toLocaleDateString()}
                       </Text>
-                      <Ionicons name="calendar" size={16} color="#6B7280" />
                     </TouchableOpacity>
                   </View>
-                  
                   <View className="flex-1">
-                    <Text className="mb-2 font-medium text-gray-700">Time</Text>
+                    <Text className="mb-2 font-medium text-gray-700">Time *</Text>
                     <TouchableOpacity
-                      onPress={() => setShowTimePicker(true)}
-                      className="flex-row items-center justify-between p-2 bg-gray-50 rounded-xl"
+                      onPress={() => openTimePicker('update')}
+                      className="p-3 border border-gray-300 rounded-xl"
                     >
-                      <Text className="text-sm text-gray-700">
-                        {updateAppointment.time.toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
+                      <Text className="text-gray-700">
+                        {updateAppointment.time.toLocaleTimeString([], { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
                         })}
                       </Text>
-                      <Ionicons name="time" size={16} color="#6B7280" />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1004,35 +1107,34 @@ const AppointmentsScreen = ({ navigation }) => {
                 <View className="mb-4">
                   <Text className="mb-2 font-medium text-gray-700">Notes</Text>
                   <TextInput
-                    className="p-2 text-sm text-gray-700 bg-gray-50 rounded-xl"
-                    placeholder="Add notes (optional)"
-                    multiline
-                    numberOfLines={2}
                     value={updateAppointment.notes}
                     onChangeText={(text) => setUpdateAppointment((prev) => ({ ...prev, notes: text }))}
+                    placeholder="Add any notes about this appointment..."
+                    multiline
+                    numberOfLines={3}
+                    className="p-3 border border-gray-300 rounded-xl"
+                    style={{ textAlignVertical: 'top' }}
                   />
                 </View>
 
                 {/* Reminder Toggle */}
-                <View className="flex-row items-center justify-between">
-                  <View>
-                    <Text className="font-medium text-gray-700">Set Reminder & Alarm</Text>
-                    <Text className="text-xs text-gray-500">Get notified 24h and 1h before</Text>
-                  </View>
+                <View className="mb-4">
                   <TouchableOpacity
-                    onPress={() =>
-                      setUpdateAppointment((prev) => ({ ...prev, reminder: !prev.reminder }))
-                    }
-                    className={`w-10 h-5 rounded-full ${
-                      updateAppointment.reminder ? 'bg-pink-500' : 'bg-gray-300'
-                    }`}
+                    onPress={() => setUpdateAppointment((prev) => ({ ...prev, reminder: !prev.reminder }))}
+                    className="flex-row items-center justify-between p-3 border border-gray-300 rounded-xl"
                   >
-                    <View
-                      className={`w-4 h-4 bg-white rounded-full mt-0.5 ${
-                        updateAppointment.reminder ? 'ml-5' : 'ml-0.5'
-                      }`}
+                    <Text className="font-medium text-gray-700">Set Reminder</Text>
+                    <Ionicons
+                      name={updateAppointment.reminder ? 'toggle' : 'toggle-outline'}
+                      size={24}
+                      color={updateAppointment.reminder ? '#FF8AB7' : '#6B7280'}
                     />
                   </TouchableOpacity>
+                  {updateAppointment.reminder && (
+                    <Text className="mt-1 text-xs text-gray-500">
+                      You'll receive reminders 24 hours and 1 hour before your appointment
+                    </Text>
+                  )}
                 </View>
               </ScrollView>
             </SafeAreaView>
@@ -1043,43 +1145,26 @@ const AppointmentsScreen = ({ navigation }) => {
       {/* Date Picker */}
       {showDatePicker && (
         <DateTimePicker
-          value={showUpdateModal ? updateAppointment.date : newAppointment.date}
+          value={datePickerMode === 'add' ? newAppointment.appointment_date : updateAppointment.appointment_date}
           mode="date"
           display="default"
+          onChange={onDateChange}
           minimumDate={new Date()}
-          onChange={(event, selectedDate) => {
-            setShowDatePicker(false);
-            if (selectedDate) {
-              if (showUpdateModal) {
-                setUpdateAppointment((prev) => ({ ...prev, date: selectedDate }));
-              } else {
-                setNewAppointment((prev) => ({ ...prev, date: selectedDate }));
-              }
-            }
-          }}
         />
       )}
 
       {/* Time Picker */}
       {showTimePicker && (
         <DateTimePicker
-          value={showUpdateModal ? updateAppointment.time : newAppointment.time}
+          value={timePickerMode === 'add' ? newAppointment.time : updateAppointment.time}
           mode="time"
           display="default"
-          onChange={(event, selectedTime) => {
-            setShowTimePicker(false);
-            if (selectedTime) {
-              if (showUpdateModal) {
-                setUpdateAppointment((prev) => ({ ...prev, time: selectedTime }));
-              } else {
-                setNewAppointment((prev) => ({ ...prev, time: selectedTime }));
-              }
-            }
-          }}
+          onChange={onTimeChange}
         />
       )}
     </SafeAreaView>
-
+    
+    {/* Toast Messages */}
     <Toast />
     </>
   );
