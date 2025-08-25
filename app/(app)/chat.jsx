@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from "./../components/config";
+import { API_BASE_URL } from "../components/config";
 import { router } from 'expo-router';
 const ChatScreen = () => {
   const [activeMode, setActiveMode] = useState('chat');
@@ -237,7 +237,7 @@ const ChatScreen = () => {
     if (message.error) return null;
 
     return (
-      <View className="mt-3 pt-2 border-t border-gray-200">
+      <View className="pt-2 mt-3 border-t border-gray-200">
         <View className="flex-row items-center justify-between mb-2">
           {/* Confidence Score */}
           {message.confidence && (
@@ -268,12 +268,12 @@ const ChatScreen = () => {
         {/* Risk Factors / Clinical Insights */}
         {message.riskFactors?.length > 0 && (
           <View className="mt-2">
-            <Text className="text-xs text-gray-600 mb-1">
+            <Text className="mb-1 text-xs text-gray-600">
               {message.mode === 'consultation' ? 'Clinical Insights:' : 'Risk Factors:'}
             </Text>
             <View className="flex-row flex-wrap">
               {message.riskFactors.map((factor, index) => (
-                <View key={index} className="mr-1 mb-1 px-2 py-1 bg-orange-100 rounded-full">
+                <View key={index} className="px-2 py-1 mb-1 mr-1 bg-orange-100 rounded-full">
                   <Text className="text-xs text-orange-700">{factor}</Text>
                 </View>
               ))}
@@ -284,9 +284,9 @@ const ChatScreen = () => {
         {/* Health Recommendations (for consultation mode) */}
         {message.healthRecommendations?.length > 0 && (
           <View className="mt-2">
-            <Text className="text-xs text-gray-600 mb-1">Recommendations:</Text>
+            <Text className="mb-1 text-xs text-gray-600">Recommendations:</Text>
             {message.healthRecommendations.slice(0, 3).map((rec, index) => (
-              <Text key={index} className="text-xs text-blue-700 mb-1">
+              <Text key={index} className="mb-1 text-xs text-blue-700">
                 • {rec}
               </Text>
             ))}
@@ -296,13 +296,13 @@ const ChatScreen = () => {
         {/* Suggestions (for chat mode) */}
         {message.suggestions?.length > 0 && (
           <View className="mt-2">
-            <Text className="text-xs text-gray-600 mb-1">Suggestions:</Text>
+            <Text className="mb-1 text-xs text-gray-600">Suggestions:</Text>
             <View className="flex-row flex-wrap">
               {message.suggestions.slice(0, 2).map((suggestion, index) => (
                 <TouchableOpacity
                   key={index}
                   onPress={() => setCurrentMessage(suggestion)}
-                  className="mr-2 mb-1 px-2 py-1 bg-blue-50 rounded-full border border-blue-200"
+                  className="px-2 py-1 mb-1 mr-2 border border-blue-200 rounded-full bg-blue-50"
                 >
                   <Text className="text-xs text-blue-600">{suggestion}</Text>
                 </TouchableOpacity>
@@ -320,7 +320,7 @@ const ChatScreen = () => {
           </View>
         )}
 
-        <Text className="text-xs text-gray-500 mt-1">
+        <Text className="mt-1 text-xs text-gray-500">
           {new Date(message.timestamp).toLocaleTimeString()}
         </Text>
       </View>
@@ -334,7 +334,7 @@ const ChatScreen = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {/* Header */}
-        <View className="bg-blue-600 px-4 py-4">
+        <View className="px-4 py-4 bg-blue-600">
           <View className="flex-row items-center justify-between mb-4">
             <TouchableOpacity onPress={() => router.back()}>
               <Ionicons name="arrow-back" size={24} color="white" />
@@ -346,7 +346,7 @@ const ChatScreen = () => {
           </View>
 
           {/* Mode Toggle */}
-          <View className="flex-row bg-white/20 rounded-xl p-1">
+          <View className="flex-row p-1 bg-white/20 rounded-xl">
             <TouchableOpacity
               onPress={() => setActiveMode('chat')}
               className={`flex-1 py-2 px-4 rounded-lg ${
@@ -382,14 +382,14 @@ const ChatScreen = () => {
           showsVerticalScrollIndicator={false}
         >
           {chatMessages.length === 0 ? (
-            <View className="flex-1 items-center justify-center py-20">
-              <View className="w-16 h-16 bg-blue-100 rounded-full items-center justify-center mb-4">
+            <View className="items-center justify-center flex-1 py-20">
+              <View className="items-center justify-center w-16 h-16 mb-4 bg-blue-100 rounded-full">
                 <Ionicons name="chatbubble-ellipses" size={28} color="#3B82F6" />
               </View>
-              <Text className="text-lg font-semibold text-gray-800 mb-2">
+              <Text className="mb-2 text-lg font-semibold text-gray-800">
                 Start Your Health Chat
               </Text>
-              <Text className="text-sm text-gray-600 text-center px-8 mb-6">
+              <Text className="px-8 mb-6 text-sm text-center text-gray-600">
                 {activeMode === 'chat' 
                   ? 'Ask general questions about pregnancy' 
                   : 'Get personalized consultation with your health data'}
@@ -449,7 +449,7 @@ const ChatScreen = () => {
 
                     {/* User Message Timestamp */}
                     {message.type === 'user' && (
-                      <Text className="text-xs text-white/70 mt-1">
+                      <Text className="mt-1 text-xs text-white/70">
                         {new Date(message.timestamp).toLocaleTimeString()}
                       </Text>
                     )}
@@ -463,7 +463,7 @@ const ChatScreen = () => {
         {/* Input Area */}
         <View className="px-4 py-4 bg-white border-t border-gray-200">
           {activeMode === 'consultation' && (
-            <View className="mb-3 p-3 bg-purple-50 rounded-xl">
+            <View className="p-3 mb-3 bg-purple-50 rounded-xl">
               <View className="flex-row items-center">
                 <Ionicons name="medical" size={16} color="#8B5CF6" />
                 <Text className="ml-2 text-sm text-purple-700">
@@ -474,7 +474,7 @@ const ChatScreen = () => {
           )}
 
           <View className="flex-row items-end space-x-3">
-            <View className="flex-1 bg-gray-100 rounded-2xl px-4 py-3">
+            <View className="flex-1 px-4 py-3 bg-gray-100 rounded-2xl">
               <TextInput
                 value={currentMessage}
                 onChangeText={setCurrentMessage}

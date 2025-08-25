@@ -233,12 +233,12 @@ const HealthTipsScreen = ({ navigation }) => {
   };
 
   const handleAIAssessment = () => {
-    // navigation.navigate('HealthAssessment', {
+    // router.push('HealthAssessment', {
     //   currentWeek: gestationalWeek || currentWeek,
     //   riskAssessment,
     //   aiRecommendations
     // });
-    router.replace('/(auth)/HealthAssessment' ,{
+    router.replace('../health-assessment' ,{
         currentWeek: gestationalWeek || currentWeek,
       riskAssessment,
       aiRecommendations
@@ -246,7 +246,7 @@ const HealthTipsScreen = ({ navigation }) => {
   };
 
   const handleAIAssistant = () => {
-    navigation.navigate('ChatScreen', {
+    router.push('../chat', {
       context: {
         week: gestationalWeek || currentWeek,
         category: activeTab,
@@ -273,7 +273,7 @@ const HealthTipsScreen = ({ navigation }) => {
               {dataSource === 'ai-model' ? 'AI-Powered Insights' : 'Standard Recommendations'}
             </Text>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('FavoriteTips')}>
+          <TouchableOpacity onPress={() => router.push('FavoriteTips')}>
             <Ionicons name="heart" size={24} color="#EF4444" />
           </TouchableOpacity>
         </View>

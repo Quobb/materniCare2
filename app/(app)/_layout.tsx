@@ -15,7 +15,7 @@ export default function AppLayout() {
     }
   }, [isAuthenticated, isLoading]);
 
-  // Don't render app screens if not authenticated
+  // Don't https://github.com/Quobb/Client.gitrender app screens if not authenticated
   if (!isAuthenticated) {
     return null;
   }
