@@ -18,7 +18,7 @@ import { API_BASE_URL } from "../../components/config";
 import { router } from 'expo-router';
 
 const HealthTipsScreen = ({ navigation }) => {
-  const [activeTab, setActiveTab] = useState('nutrition');
+  const [activeTab, setActiveTab] = useState('mental_health'); // Updated default tab
   const [searchQuery, setSearchQuery] = useState('');
   const [currentWeek, setCurrentWeek] = useState(0);
   const [gestationalWeek, setGestationalWeek] = useState(0);
@@ -29,6 +29,7 @@ const HealthTipsScreen = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [dataSource, setDataSource] = useState('loading');
+  const [personalizedFor, setPersonalizedFor] = useState(null);
 
   const categories = [
     { id: 'nutrition', title: 'Nutrition', icon: 'nutrition', color: '#10B981' },
@@ -85,24 +86,26 @@ const HealthTipsScreen = ({ navigation }) => {
       setAiRecommendations(data.aiRecommendations);
       setRiskAssessment(data.riskAssessment);
       setDataSource(data.dataSource || 'unknown');
+      setPersonalizedFor(data.personalizedFor);
 
       // Process health tips - group by category
-      if (data.healthTips) {
+      if (data.healthTips && Array.isArray(data.healthTips)) {
         const groupedTips = data.healthTips.reduce((acc, tip) => {
           const category = tip.category || 'general';
           if (!acc[category]) acc[category] = [];
           acc[category].push({
             id: tip.id,
             title: tip.title,
-            description: tip.description,
+            description: tip.content, // Updated: using 'content' field from API
             weekRelevant: Array.from(
               { length: (tip.week_end || currentWeek) - (tip.week_start || currentWeek) + 1 },
               (_, i) => (tip.week_start || currentWeek) + i
             ),
             priority: tip.priority || 'medium',
             aiGenerated: data.dataSource === 'ai-model',
-            tips: tip.content ? [tip.content] : [],
-            category: tip.category
+            tips: [], // No sub-tips in the new format
+            category: tip.category,
+            content: tip.content
           });
           return acc;
         }, {});
@@ -116,7 +119,8 @@ const HealthTipsScreen = ({ navigation }) => {
           id: `ai-${index}`,
           title: `AI Recommendation: ${data.aiRecommendations.category}`,
           description: tip,
-          weekRelevant: [gestationalWeek || currentWeek],
+          content: tip,
+          weekRelevant: [currentWeek],
           priority: 'high',
           aiGenerated: true,
           tips: [],
@@ -152,22 +156,25 @@ const HealthTipsScreen = ({ navigation }) => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      setHealthTips(prev => ({
-        ...prev,
-        [category]: response.data.healthTips.map(tip => ({
-          id: tip.id,
-          title: tip.title,
-          description: tip.description,
-          weekRelevant: Array.from(
-            { length: tip.week_end - tip.week_start + 1 },
-            (_, i) => tip.week_start + i
-          ),
-          priority: tip.priority || 'medium',
-          aiGenerated: false,
-          tips: tip.content ? [tip.content] : [],
-          category: tip.category
-        }))
-      }));
+      if (response.data.healthTips) {
+        setHealthTips(prev => ({
+          ...prev,
+          [category]: response.data.healthTips.map(tip => ({
+            id: tip.id,
+            title: tip.title,
+            description: tip.content, // Updated: using 'content' field
+            content: tip.content,
+            weekRelevant: Array.from(
+              { length: (tip.week_end || 0) - (tip.week_start || 0) + 1 },
+              (_, i) => (tip.week_start || 0) + i
+            ),
+            priority: tip.priority || 'medium',
+            aiGenerated: false,
+            tips: [],
+            category: tip.category
+          }))
+        }));
+      }
     } catch (error) {
       console.error('Fetch category tips error:', error);
     }
@@ -177,7 +184,9 @@ const HealthTipsScreen = ({ navigation }) => {
     const mapping = {
       'Nutrition Focus': 'nutrition',
       'Exercise Focus': 'exercise',
-      'Wellness Focus': 'mental_health'
+      'Wellness Focus': 'mental_health', // Updated mapping
+      'Sleep Focus': 'sleep',
+      'General Focus': 'general'
     };
     return mapping[aiCategory] || 'general';
   };
@@ -203,10 +212,11 @@ const HealthTipsScreen = ({ navigation }) => {
     const categoryTips = healthTips[activeTab] || [];
     return categoryTips
       .filter(tip =>
-        tip.weekRelevant.includes(gestationalWeek || currentWeek) &&
+        tip.weekRelevant.includes(currentWeek) &&
         (searchQuery === '' ||
           tip.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          tip.description.toLowerCase().includes(searchQuery.toLowerCase()))
+          (tip.description && tip.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+          (tip.content && tip.content.toLowerCase().includes(searchQuery.toLowerCase())))
       )
       .sort((a, b) => {
         const priorityOrder = { high: 3, medium: 2, low: 1 };
@@ -233,45 +243,47 @@ const HealthTipsScreen = ({ navigation }) => {
   };
 
   const handleAIAssessment = () => {
-    // router.push('HealthAssessment', {
-    //   currentWeek: gestationalWeek || currentWeek,
-    //   riskAssessment,
-    //   aiRecommendations
-    // });
-    router.replace('../health-assessment' ,{
-        currentWeek: gestationalWeek || currentWeek,
+    router.replace('../health-assessment', {
+      currentWeek: currentWeek,
       riskAssessment,
-      aiRecommendations
+      aiRecommendations,
+      personalizedFor
     });
   };
 
   const handleAIAssistant = () => {
     router.push('../chat', {
       context: {
-        week: gestationalWeek || currentWeek,
+        week: currentWeek,
         category: activeTab,
         currentTips: getRelevantTips(),
         riskLevel: riskAssessment?.risk_level,
-        recommendations: aiRecommendations
+        recommendations: aiRecommendations,
+        personalizedFor
       },
     });
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#f0fdf4' }}>
+    <SafeAreaView className="flex-1 bg-green-50">
       <ScrollView 
-        style={{ flex: 1, paddingHorizontal: 16, paddingTop: 16 }}
+        className="flex-1 px-4 pt-4"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
         {/* Header */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <View className="flex-row items-center justify-between mb-6">
           <View>
-            <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#065f46' }}>Health Tips</Text>
-            <Text style={{ fontSize: 14, color: '#6b7280' }}>
+            <Text className="text-2xl font-bold text-green-800">Health Tips</Text>
+            <Text className="text-sm text-gray-500">
               {dataSource === 'ai-model' ? 'AI-Powered Insights' : 'Standard Recommendations'}
             </Text>
+            {personalizedFor && (
+              <Text className="text-xs text-green-600 mt-1">
+                Personalized for {personalizedFor.age}y, Week {personalizedFor.currentWeek}
+              </Text>
+            )}
           </View>
           <TouchableOpacity onPress={() => router.push('FavoriteTips')}>
             <Ionicons name="heart" size={24} color="#EF4444" />
@@ -280,67 +292,49 @@ const HealthTipsScreen = ({ navigation }) => {
 
         {/* Risk Assessment Banner */}
         {riskAssessment && (
-          <View style={{
-            padding: 16,
-            marginBottom: 16,
-            backgroundColor: getRiskLevelColor(riskAssessment.risk_level).bg === 'bg-red-100' ? '#fef2f2' :
-                             getRiskLevelColor(riskAssessment.risk_level).bg === 'bg-yellow-100' ? '#fefce8' : '#f0fdf4',
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 4,
-            elevation: 3,
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+          <View className={`p-4 mb-4 rounded-2xl shadow-sm ${
+            riskAssessment.risk_level === 'High Risk' ? 'bg-red-50' :
+            riskAssessment.risk_level === 'Medium Risk' ? 'bg-yellow-50' : 'bg-green-50'
+          }`}>
+            <View className="flex-row items-center justify-between">
+              <View className="flex-1">
+                <View className="flex-row items-center mb-1">
                   <Ionicons 
                     name={getRiskLevelColor(riskAssessment.risk_level).icon} 
                     size={20} 
-                    color={getRiskLevelColor(riskAssessment.risk_level).text === 'text-red-700' ? '#b91c1c' :
-                           getRiskLevelColor(riskAssessment.risk_level).text === 'text-yellow-700' ? '#a16207' : '#15803d'} 
+                    color={
+                      riskAssessment.risk_level === 'High Risk' ? '#b91c1c' :
+                      riskAssessment.risk_level === 'Medium Risk' ? '#a16207' : '#15803d'
+                    } 
                   />
-                  <Text style={{
-                    marginLeft: 8,
-                    fontWeight: '600',
-                    color: getRiskLevelColor(riskAssessment.risk_level).text === 'text-red-700' ? '#b91c1c' :
-                           getRiskLevelColor(riskAssessment.risk_level).text === 'text-yellow-700' ? '#a16207' : '#15803d'
-                  }}>
+                  <Text className={`ml-2 font-semibold ${
+                    riskAssessment.risk_level === 'High Risk' ? 'text-red-700' :
+                    riskAssessment.risk_level === 'Medium Risk' ? 'text-yellow-700' : 'text-green-700'
+                  }`}>
                     {riskAssessment.risk_level}
                   </Text>
                 </View>
-                <Text style={{
-                  fontSize: 14,
-                  color: getRiskLevelColor(riskAssessment.risk_level).text === 'text-red-700' ? '#b91c1c' :
-                         getRiskLevelColor(riskAssessment.risk_level).text === 'text-yellow-700' ? '#a16207' : '#15803d'
-                }}>
+                <Text className={`text-sm ${
+                  riskAssessment.risk_level === 'High Risk' ? 'text-red-700' :
+                  riskAssessment.risk_level === 'Medium Risk' ? 'text-yellow-700' : 'text-green-700'
+                }`}>
                   Confidence: {Math.round(riskAssessment.confidence * 100)}%
                 </Text>
-                <Text style={{
-                  fontSize: 12,
-                  marginTop: 4,
-                  color: getRiskLevelColor(riskAssessment.risk_level).text === 'text-red-700' ? '#b91c1c' :
-                         getRiskLevelColor(riskAssessment.risk_level).text === 'text-yellow-700' ? '#a16207' : '#15803d'
-                }}>
+                <Text className={`text-xs mt-1 ${
+                  riskAssessment.risk_level === 'High Risk' ? 'text-red-700' :
+                  riskAssessment.risk_level === 'Medium Risk' ? 'text-yellow-700' : 'text-green-700'
+                }`}>
                   {riskAssessment.recommendation}
                 </Text>
               </View>
               <TouchableOpacity 
                 onPress={handleAIAssessment}
-                style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                  borderRadius: 12
-                }}
+                className="px-3 py-2 bg-white bg-opacity-20 rounded-xl"
               >
-                <Text style={{
-                  fontSize: 12,
-                  fontWeight: '500',
-                  color: getRiskLevelColor(riskAssessment.risk_level).text === 'text-red-700' ? '#b91c1c' :
-                         getRiskLevelColor(riskAssessment.risk_level).text === 'text-yellow-700' ? '#a16207' : '#15803d'
-                }}>
+                <Text className={`text-xs font-medium ${
+                  riskAssessment.risk_level === 'High Risk' ? 'text-red-700' :
+                  riskAssessment.risk_level === 'Medium Risk' ? 'text-yellow-700' : 'text-green-700'
+                }`}>
                   View Details
                 </Text>
               </TouchableOpacity>
@@ -349,51 +343,29 @@ const HealthTipsScreen = ({ navigation }) => {
         )}
 
         {/* Personalized Banner */}
-        <View style={{
-          padding: 24,
-          marginBottom: 24,
-          backgroundColor: '#10b981',
-          borderRadius: 24,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.1,
-          shadowRadius: 6,
-          elevation: 4,
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View className="p-6 mb-6 bg-green-500 rounded-3xl shadow-lg">
+          <View className="flex-row items-center">
             <Image
               source={require('../../../assets/animation/Gynecology consultation-amico.png')}
-              style={{ width: 64, height: 64, marginRight: 16 }}
+              className="w-16 h-16 mr-4"
               resizeMode="contain"
             />
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', color: 'white' }}>
-                Week {gestationalWeek || currentWeek} Tips
+            <View className="flex-1">
+              <Text className="text-lg font-semibold text-white">
+                Week {currentWeek} Tips
               </Text>
-              <Text style={{ fontSize: 14, color: 'rgba(255, 255, 255, 0.8)' }}>
-                {aiRecommendations ? `${aiRecommendations.category} Focus` : 'Personalized for your journey'}
+              <Text className="text-sm text-white text-opacity-80">
+                {aiRecommendations ? `${aiRecommendations.category}` : 'Personalized for your journey'}
               </Text>
-              <View style={{ flexDirection: 'row', marginTop: 8, gap: 8 }}>
-                <View style={{
-                  alignSelf: 'flex-start',
-                  paddingHorizontal: 12,
-                  paddingVertical: 4,
-                  borderRadius: 20,
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)'
-                }}>
-                  <Text style={{ fontSize: 12, fontWeight: '500', color: 'white' }}>
+              <View className="flex-row mt-2 gap-2">
+                <View className="self-start px-3 py-1 rounded-full bg-white bg-opacity-20">
+                  <Text className="text-xs font-medium text-white">
                     {dataSource === 'ai-model' ? 'AI-Powered' : 'Standard'}
                   </Text>
                 </View>
                 {aiRecommendations && (
-                  <View style={{
-                    alignSelf: 'flex-start',
-                    paddingHorizontal: 12,
-                    paddingVertical: 4,
-                    borderRadius: 20,
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)'
-                  }}>
-                    <Text style={{ fontSize: 12, fontWeight: '500', color: 'white' }}>
+                  <View className="self-start px-3 py-1 rounded-full bg-white bg-opacity-20">
+                    <Text className="text-xs font-medium text-white">
                       {Math.round(aiRecommendations.confidence * 100)}% match
                     </Text>
                   </View>
@@ -404,23 +376,11 @@ const HealthTipsScreen = ({ navigation }) => {
         </View>
 
         {/* Search Bar */}
-        <View style={{
-          padding: 12,
-          marginBottom: 16,
-          backgroundColor: 'white',
-          borderWidth: 1,
-          borderColor: '#dcfce7',
-          borderRadius: 16,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 2,
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View className="p-3 mb-4 bg-white border border-green-200 rounded-2xl shadow-sm">
+          <View className="flex-row items-center">
             <Ionicons name="search" size={20} color="#6B7280" />
             <TextInput
-              style={{ flex: 1, marginLeft: 12, color: '#374151' }}
+              className="flex-1 ml-3 text-gray-700"
               placeholder="Search health tips..."
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -434,8 +394,8 @@ const HealthTipsScreen = ({ navigation }) => {
         </View>
 
         {/* Category Tabs */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 24 }}>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-6">
+          <View className="flex-row gap-3">
             {categories.map((category) => {
               const isRecommended = aiRecommendations && 
                 mapAiCategoryToLocal(aiRecommendations.category) === category.id;
@@ -444,48 +404,25 @@ const HealthTipsScreen = ({ navigation }) => {
                 <TouchableOpacity
                   key={category.id}
                   onPress={() => setActiveTab(category.id)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    borderRadius: 16,
-                    position: 'relative',
-                    backgroundColor: activeTab === category.id ? '#10b981' : 'white',
-                    borderWidth: activeTab === category.id ? 0 : 1,
-                    borderColor: '#dcfce7',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 3,
-                    elevation: 3,
-                  }}
+                  className={`flex-row items-center px-4 py-3 rounded-2xl relative shadow-sm ${
+                    activeTab === category.id ? 'bg-green-500' : 'bg-white border border-green-200'
+                  }`}
                 >
                   {isRecommended && (
-                    <View style={{
-                      position: 'absolute',
-                      top: -4,
-                      right: -4,
-                      width: 12,
-                      height: 12,
-                      backgroundColor: '#fb923c',
-                      borderRadius: 6
-                    }} />
+                    <View className="absolute -top-1 -right-1 w-3 h-3 bg-orange-400 rounded-full" />
                   )}
                   <Ionicons
                     name={category.icon}
                     size={20}
                     color={activeTab === category.id ? 'white' : category.color}
                   />
-                  <Text style={{
-                    marginLeft: 8,
-                    fontWeight: '500',
-                    color: activeTab === category.id ? 'white' : '#374151'
-                  }}>
+                  <Text className={`ml-2 font-medium ${
+                    activeTab === category.id ? 'text-white' : 'text-gray-700'
+                  }`}>
                     {category.title}
                   </Text>
                   {isRecommended && activeTab !== category.id && (
-                    <Text style={{ marginLeft: 4, fontSize: 12, color: '#ea580c', fontWeight: '600' }}>★</Text>
+                    <Text className="ml-1 text-xs text-orange-600 font-semibold">★</Text>
                   )}
                 </TouchableOpacity>
               );
@@ -494,28 +431,16 @@ const HealthTipsScreen = ({ navigation }) => {
         </ScrollView>
 
         {/* Tips List */}
-        <View style={{ marginBottom: 24 }}>
+        <View className="mb-6">
           {isLoading ? (
-            <View style={{ alignItems: 'center', padding: 24 }}>
+            <View className="items-center py-6">
               <ActivityIndicator size="large" color="#10B981" />
-              <Text style={{ marginTop: 8, color: '#6b7280' }}>Loading personalized tips...</Text>
+              <Text className="mt-2 text-gray-500">Loading personalized tips...</Text>
             </View>
           ) : getRelevantTips().length === 0 ? (
-            <View style={{
-              alignItems: 'center',
-              padding: 24,
-              backgroundColor: 'white',
-              borderWidth: 1,
-              borderColor: '#dcfce7',
-              borderRadius: 16,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.05,
-              shadowRadius: 2,
-              elevation: 2,
-            }}>
+            <View className="items-center p-6 bg-white border border-green-200 rounded-2xl shadow-sm">
               <Ionicons name="search" size={48} color="#93C5FD" />
-              <Text style={{ marginTop: 8, textAlign: 'center', color: '#6b7280' }}>
+              <Text className="mt-2 text-center text-gray-500">
                 {searchQuery ? 'No tips found for your search' : 'No tips available for this category'}
               </Text>
             </View>
@@ -523,24 +448,12 @@ const HealthTipsScreen = ({ navigation }) => {
             getRelevantTips().map((tip) => (
               <View
                 key={tip.id}
-                style={{
-                  padding: 20,
-                  marginBottom: 16,
-                  backgroundColor: 'white',
-                  borderWidth: 1,
-                  borderColor: '#dcfce7',
-                  borderRadius: 16,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.05,
-                  shadowRadius: 2,
-                  elevation: 2,
-                }}
+                className="p-5 mb-4 bg-white border border-green-200 rounded-2xl shadow-sm"
               >
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                      <Text style={{ flex: 1, fontSize: 18, fontWeight: 'bold', color: '#065f46' }}>
+                <View className="flex-row items-start justify-between mb-3">
+                  <View className="flex-1">
+                    <View className="flex-row items-center mb-2">
+                      <Text className="flex-1 text-lg font-bold text-green-800">
                         {tip.title}
                       </Text>
                       <TouchableOpacity onPress={() => toggleFavorite(tip.id)}>
@@ -551,40 +464,26 @@ const HealthTipsScreen = ({ navigation }) => {
                         />
                       </TouchableOpacity>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                      <View style={{
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 20,
-                        backgroundColor: tip.priority === 'high' ? '#fef2f2' : tip.priority === 'medium' ? '#fefce8' : '#f0fdf4'
-                      }}>
-                        <Text style={{
-                          fontSize: 12,
-                          fontWeight: '500',
-                          textTransform: 'capitalize',
-                          color: tip.priority === 'high' ? '#b91c1c' : tip.priority === 'medium' ? '#a16207' : '#15803d'
-                        }}>
+                    <View className="flex-row items-center mb-2 flex-wrap gap-2">
+                      <View className={`px-2 py-1 rounded-full ${
+                        tip.priority === 'high' ? 'bg-red-50' : 
+                        tip.priority === 'medium' ? 'bg-yellow-50' : 'bg-green-50'
+                      }`}>
+                        <Text className={`text-xs font-medium capitalize ${
+                          tip.priority === 'high' ? 'text-red-700' :
+                          tip.priority === 'medium' ? 'text-yellow-700' : 'text-green-700'
+                        }`}>
                           {tip.priority}
                         </Text>
                       </View>
                       {tip.aiGenerated && (
-                        <View style={{
-                          paddingHorizontal: 8,
-                          paddingVertical: 4,
-                          backgroundColor: '#f3e8ff',
-                          borderRadius: 20
-                        }}>
-                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#7c3aed' }}>AI</Text>
+                        <View className="px-2 py-1 bg-purple-50 rounded-full">
+                          <Text className="text-xs font-medium text-purple-700">AI</Text>
                         </View>
                       )}
                       {tip.confidence && (
-                        <View style={{
-                          paddingHorizontal: 8,
-                          paddingVertical: 4,
-                          backgroundColor: '#dbeafe',
-                          borderRadius: 20
-                        }}>
-                          <Text style={{ fontSize: 12, fontWeight: '500', color: '#1d4ed8' }}>
+                        <View className="px-2 py-1 bg-blue-50 rounded-full">
+                          <Text className="text-xs font-medium text-blue-700">
                             {Math.round(tip.confidence * 100)}% match
                           </Text>
                         </View>
@@ -593,23 +492,16 @@ const HealthTipsScreen = ({ navigation }) => {
                   </View>
                 </View>
 
-                <Text style={{ marginBottom: 16, fontSize: 14, lineHeight: 20, color: '#374151' }}>
-                  {tip.description}
+                <Text className="mb-4 text-sm leading-5 text-gray-700">
+                  {tip.description || tip.content}
                 </Text>
 
-                {tip.tips.length > 0 && (
-                  <View style={{ gap: 8 }}>
+                {tip.tips && tip.tips.length > 0 && (
+                  <View className="gap-2">
                     {tip.tips.map((subTip, index) => (
-                      <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                        <View style={{
-                          width: 8,
-                          height: 8,
-                          marginTop: 8,
-                          marginRight: 12,
-                          backgroundColor: '#10b981',
-                          borderRadius: 4
-                        }} />
-                        <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: '#4b5563' }}>
+                      <View key={index} className="flex-row items-start">
+                        <View className="w-2 h-2 mt-2 mr-3 bg-green-500 rounded" />
+                        <Text className="flex-1 text-sm leading-5 text-gray-600">
                           {subTip}
                         </Text>
                       </View>
@@ -617,19 +509,11 @@ const HealthTipsScreen = ({ navigation }) => {
                   </View>
                 )}
 
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingTop: 12,
-                  marginTop: 16,
-                  borderTopWidth: 1,
-                  borderTopColor: '#f3f4f6'
-                }}>
-                  <Text style={{ fontSize: 12, color: '#6b7280' }}>
-                    Week {gestationalWeek || currentWeek} relevant
+                <View className="flex-row items-center justify-between pt-3 mt-4 border-t border-gray-100">
+                  <Text className="text-xs text-gray-500">
+                    Week {currentWeek} relevant
                   </Text>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View className="flex-row gap-3">
                     <TouchableOpacity>
                       <Ionicons name="share-outline" size={16} color="#6B7280" />
                     </TouchableOpacity>
@@ -644,64 +528,34 @@ const HealthTipsScreen = ({ navigation }) => {
         </View>
 
         {/* AI Assistant Section */}
-        <View style={{
-          padding: 16,
-          marginBottom: 24,
-          backgroundColor: '#f8fafc',
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: '#e2e8f0'
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+        <View className="p-4 mb-6 bg-slate-50 border border-slate-200 rounded-2xl">
+          <View className="flex-row items-center mb-3">
             <Ionicons name="chatbubble-ellipses" size={20} color="#8B5CF6" />
-            <Text style={{ marginLeft: 8, fontWeight: '600', color: '#7c3aed' }}>AI Health Assistant</Text>
+            <Text className="ml-2 font-semibold text-purple-700">AI Health Assistant</Text>
             {dataSource === 'ai-model' && (
-              <View style={{
-                paddingHorizontal: 8,
-                paddingVertical: 4,
-                marginLeft: 8,
-                backgroundColor: '#f0fdf4',
-                borderRadius: 20
-              }}>
-                <Text style={{ fontSize: 12, fontWeight: '500', color: '#15803d' }}>Active</Text>
+              <View className="px-2 py-1 ml-2 bg-green-50 rounded-full">
+                <Text className="text-xs font-medium text-green-700">Active</Text>
               </View>
             )}
           </View>
-          <Text style={{ marginBottom: 12, fontSize: 14, color: '#7c3aed' }}>
+          <Text className="mb-3 text-sm text-purple-700">
             Get personalized advice based on your current pregnancy week, risk assessment, and health data.
           </Text>
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View className="flex-row gap-3">
             <TouchableOpacity
               onPress={handleAIAssistant}
-              style={{
-                flex: 1,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                backgroundColor: '#8b5cf6',
-                borderRadius: 12
-              }}
+              className="flex-1 flex-row items-center justify-center px-4 py-3 bg-purple-500 rounded-xl"
             >
               <Ionicons name="chatbubble-ellipses" size={16} color="white" />
-              <Text style={{ marginLeft: 8, fontWeight: '500', color: 'white' }}>Chat with AI</Text>
+              <Text className="ml-2 font-medium text-white">Chat with AI</Text>
             </TouchableOpacity>
             {riskAssessment && (
               <TouchableOpacity
                 onPress={handleAIAssessment}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingHorizontal: 16,
-                  paddingVertical: 12,
-                  backgroundColor: '#3b82f6',
-                  borderRadius: 12
-                }}
+                className="flex-row items-center justify-center px-4 py-3 bg-blue-500 rounded-xl"
               >
                 <Ionicons name="analytics" size={16} color="white" />
-                <Text style={{ marginLeft: 8, fontWeight: '500', color: 'white' }}>Assessment</Text>
+                <Text className="ml-2 font-medium text-white">Assessment</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -709,13 +563,8 @@ const HealthTipsScreen = ({ navigation }) => {
 
         {/* Data Source Info */}
         {dataSource !== 'loading' && (
-          <View style={{
-            padding: 12,
-            marginBottom: 24,
-            backgroundColor: '#f9fafb',
-            borderRadius: 12
-          }}>
-            <Text style={{ fontSize: 12, textAlign: 'center', color: '#6b7280' }}>
+          <View className="p-3 mb-6 bg-gray-50 rounded-xl">
+            <Text className="text-xs text-center text-gray-500">
               Tips powered by: {dataSource === 'ai-model' ? 'AI Model + Database' : 
                                dataSource === 'fallback-rules' ? 'Fallback Rules + Database' : 
                                'Database Only'}

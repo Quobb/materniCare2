@@ -15,8 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useUserProfile } from '../utils/userDataManager';
 import { clearUserData } from '../utils/userDataManager';
 
-
-const CustomDrawerContent = () => {
+const CustomDrawerContent = ({ navigation }) => {
   const { logout } = useAuth();
   const { userProfile, loading, error, refreshProfile } = useUserProfile();
 
@@ -43,7 +42,7 @@ const CustomDrawerContent = () => {
               console.log('✅ User logged out successfully');
               
               // Navigate to auth
-              router.replace('../(auth)/landing');
+              router.replace('/(auth)/landing');
             } catch (error) {
               console.error('❌ Logout error:', error);
             }
@@ -62,41 +61,55 @@ const CustomDrawerContent = () => {
     }
   };
 
+  const handleNavigation = (screenName) => {
+    if (navigation) {
+      // Close the drawer first
+      navigation.closeDrawer();
+      
+      // Navigate using the drawer navigation
+      navigation.navigate(screenName);
+    } else {
+      // Fallback to router.push with absolute paths
+      router.push(`/(app)/${screenName}`);
+    }
+  };
+
   const drawerItems = [
     {
       label: 'Dashboard',
       icon: 'home-outline',
-      onPress: () => router.push('../(app)/(tabs)/index'),
-    },
-    {
-      label: 'Forum',
-      icon: 'people-outline',
-      onPress: () => router.push('../(app)/(tabs)/forum'),
+      onPress: () => handleNavigation('(tabs)'),
+      screenName: '(tabs)'
     },
     {
       label: 'Emergency',
       icon: 'alert-circle-outline',
-      onPress: () => router.push('../(app)/emergency'),
+      onPress: () => handleNavigation('emergency'),
+      screenName: 'emergency'
     },
     {
       label: 'Wearables',
       icon: 'watch-outline',
-      onPress: () => router.push('../(app)/wearables'),
+      onPress: () => handleNavigation('wearables'),
+      screenName: 'wearables'
     },
     {
       label: 'Kick History',
       icon: 'analytics-outline',
-      onPress: () => router.push('../(app)/kick-history'),
+      onPress: () => handleNavigation('kick-history'),
+      screenName: 'kick-history'
     },
     {
       label: 'Trimester Calculator',
       icon: 'calculator-outline',
-      onPress: () => router.push('../(app)/trimester-calculator'),
+      onPress: () => handleNavigation('trimester-calculator'),
+      screenName: 'trimester-calculator'
     },
     {
       label: 'Chat',
       icon: 'chatbubble-outline',
-      onPress: () => router.push('../(app)/chat'),
+      onPress: () => handleNavigation('chat'),
+      screenName: 'chat'
     }
   ];
 
@@ -104,14 +117,26 @@ const CustomDrawerContent = () => {
     {
       label: 'Settings',
       icon: 'settings-outline',
-      onPress: () => router.push('../(app)/settings'),
+      onPress: () => handleNavigation('settings'),
+      screenName: 'settings'
     },
     {
       label: 'Help & Support',
       icon: 'help-circle-outline',
-      onPress: () => router.push('../(app)/help'),
+      onPress: () => handleNavigation('help'),
+      screenName: 'help'
     }
   ];
+
+  // Special handling for Forum (if it's part of tabs)
+  const handleForumNavigation = () => {
+    if (navigation) {
+      navigation.closeDrawer();
+      navigation.navigate('(tabs)', { screen: 'forum' });
+    } else {
+      router.push('/(app)/(tabs)/forum');
+    }
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-white">
@@ -198,6 +223,21 @@ const CustomDrawerContent = () => {
               <Icon name="chevron-forward-outline" size={16} color="#9CA3AF" />
             </TouchableOpacity>
           ))}
+          
+          {/* Special Forum Item (if it's part of tabs) */}
+          <TouchableOpacity
+            className="flex-row items-center px-3 py-4 mb-1 rounded-xl active:bg-gray-100"
+            onPress={handleForumNavigation}
+            activeOpacity={0.7}
+          >
+            <View className="items-center justify-center w-10 h-10 mr-3 bg-gray-100 rounded-full">
+              <Icon name="people-outline" size={20} color="#374151" />
+            </View>
+            <Text className="flex-1 text-base font-medium text-gray-800">
+              Forum
+            </Text>
+            <Icon name="chevron-forward-outline" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
         </View>
         
         {/* Settings Section */}

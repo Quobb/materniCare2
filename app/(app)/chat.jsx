@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL } from "../components/config";
+import { AI_URL } from "../components/config";
 import { router } from 'expo-router';
 const ChatScreen = () => {
   const [activeMode, setActiveMode] = useState('chat');
@@ -83,7 +83,7 @@ const ChatScreen = () => {
       if (activeMode === 'chat') {
         // Regular chat endpoint
         response = await axios.post(
-          `http://10.251.112.137:8000/chat`,
+          `http://192.168.1.238:8000/chat`,
           {
             message: userMessage.content,
             user_id: 'current-user',
@@ -113,7 +113,7 @@ const ChatScreen = () => {
       } else {
         // Integrated consultation endpoint
         response = await axios.post(
-          `http://10.251.112.137:8000/integrated-consultation`,
+          `http://192.168.1.238:8000/integrated-consultation`,
           {
             message: userMessage.content,
             user_id: 'current-user',
