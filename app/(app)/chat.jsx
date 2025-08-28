@@ -83,7 +83,7 @@ const ChatScreen = () => {
       if (activeMode === 'chat') {
         // Regular chat endpoint
         response = await axios.post(
-          `http://192.168.1.238:8000/chat`,
+          `${AI_URL}/chat`,
           {
             message: userMessage.content,
             user_id: 'current-user',
@@ -113,7 +113,7 @@ const ChatScreen = () => {
       } else {
         // Integrated consultation endpoint
         response = await axios.post(
-          `http://192.168.1.238:8000/integrated-consultation`,
+          `${AI_URL}/integrated-consultation`,
           {
             message: userMessage.content,
             user_id: 'current-user',
